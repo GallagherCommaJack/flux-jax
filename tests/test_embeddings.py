@@ -1,4 +1,3 @@
-
 import diffusers.models.embeddings as torch_embeddings
 import jax.numpy as jnp
 import numpy as np
