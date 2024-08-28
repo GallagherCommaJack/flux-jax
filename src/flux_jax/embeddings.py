@@ -4,7 +4,6 @@ from typing import Callable, Optional, Union
 
 import diffusers.models.embeddings as torch_embeddings
 import diffusers.models.transformers.transformer_flux as torch_flux
-import einx
 import jax
 import jax.numpy as jnp
 import torch.nn
@@ -195,7 +194,7 @@ def get_timestep_embedding(
 
     half_dim = embedding_dim // 2
     exponent = -math.log(max_period) * jnp.arange(
-        start=0, end=half_dim, dtype=jnp.float32
+        start=0, stop=half_dim, dtype=jnp.float32
     )
     exponent = exponent / (half_dim - downscale_freq_shift)
 
@@ -335,6 +334,7 @@ class TimestepEmbedding(nnx.Module):
             out.cond_proj = torch_linear_to_jax_linear(torch_model.cond_proj)
         return out
 
+
 class PixArtAlphaTextProjection(nnx.Module):
     """
     Projects caption embeddings. Also handles dropout for classifier-free guidance.
@@ -342,11 +342,21 @@ class PixArtAlphaTextProjection(nnx.Module):
     Adapted from https://github.com/PixArt-alpha/PixArt-alpha/blob/master/diffusion/model/nets/PixArt_blocks.py
     """
 
-    def __init__(self, in_features, hidden_size, out_features=None, act_fn="gelu_tanh", rngs: nnx.Rngs):
+    def __init__(
+        self,
+        in_features,
+        hidden_size,
+        out_features=None,
+        act_fn="gelu_tanh",
+        *,
+        rngs: nnx.Rngs,
+    ):
         super().__init__()
         if out_features is None:
             out_features = hidden_size
-        self.linear_1 = nnx.Linear(in_features=in_features, out_features=hidden_size, use_bias=True, rngs=rngs)
+        self.linear_1 = nnx.Linear(
+            in_features=in_features, out_features=hidden_size, use_bias=True, rngs=rngs
+        )
         if act_fn == "gelu_tanh":
             self.act_1 = jax.nn.gelu
         elif act_fn == "silu":
@@ -355,7 +365,9 @@ class PixArtAlphaTextProjection(nnx.Module):
             self.act_1 = lambda x: jax.nn.silu(x.astype(jnp.float32)).astype(x.dtype)
         else:
             raise ValueError(f"Unknown activation function: {act_fn}")
-        self.linear_2 = nnx.Linear(in_features=hidden_size, out_features=out_features, use_bias=True, rngs=rngs)
+        self.linear_2 = nnx.Linear(
+            in_features=hidden_size, out_features=out_features, use_bias=True, rngs=rngs
+        )
 
     def __call__(self, caption):
         hidden_states = self.linear_1(caption)
@@ -370,19 +382,25 @@ class PixArtAlphaTextProjection(nnx.Module):
                 in_features=torch_model.linear_1.in_features,
                 hidden_size=torch_model.linear_1.out_features,
                 out_features=torch_model.linear_2.out_features,
-                act_fn="gelu_tanh" if isinstance(torch_model.act_1, torch.nn.GELU) else
-                       "silu" if isinstance(torch_model.act_1, torch.nn.SiLU) else
-                       "silu_fp32" if isinstance(torch_model.act_1, torch_embeddings.FP32SiLU) else
-                       "unknown",
-                rngs=nnx.Rngs(0)
+                act_fn="gelu_tanh"
+                if isinstance(torch_model.act_1, torch.nn.GELU)
+                else "silu"
+                if isinstance(torch_model.act_1, torch.nn.SiLU)
+                else "silu_fp32"
+                if isinstance(torch_model.act_1, torch_embeddings.FP32SiLU)
+                else "unknown",
+                rngs=nnx.Rngs(0),
             )
         )
         out.linear_1 = torch_linear_to_jax_linear(torch_model.linear_1)
         out.linear_2 = torch_linear_to_jax_linear(torch_model.linear_2)
         return out
 
+
 class CombinedTimestepTextProjEmbeddings(nnx.Module):
-    def __init__(self, embedding_dim: int, pooled_projection_dim: int, *, rngs: nnx.Rngs):
+    def __init__(
+        self, embedding_dim: int, pooled_projection_dim: int, *, rngs: nnx.Rngs
+    ):
         super().__init__()
 
         self.time_proj = Timesteps(
@@ -408,22 +426,30 @@ class CombinedTimestepTextProjEmbeddings(nnx.Module):
         return conditioning
 
     @classmethod
-    def from_torch(cls, torch_model: torch_embeddings.CombinedTimestepTextProjEmbeddings):
+    def from_torch(
+        cls, torch_model: torch_embeddings.CombinedTimestepTextProjEmbeddings
+    ):
         out: CombinedTimestepTextProjEmbeddings = jax.eval_shape(
             cls(
                 embedding_dim=torch_model.timestep_embedder.linear_1.out_features,
                 pooled_projection_dim=torch_model.text_embedder.linear_1.in_features,
-                rngs=nnx.Rngs(0)
+                rngs=nnx.Rngs(0),
             )
         )
         out.time_proj = Timesteps.from_torch(torch_model.time_proj)
-        out.timestep_embedder = TimestepEmbedding.from_torch(torch_model.timestep_embedder)
-        out.text_embedder = PixArtAlphaTextProjection.from_torch(torch_model.text_embedder)
+        out.timestep_embedder = TimestepEmbedding.from_torch(
+            torch_model.timestep_embedder
+        )
+        out.text_embedder = PixArtAlphaTextProjection.from_torch(
+            torch_model.text_embedder
+        )
         return out
 
 
 class CombinedTimestepGuidanceTextProjEmbeddings(nnx.Module):
-    def __init__(self, embedding_dim: int, pooled_projection_dim: int, *, rngs: nnx.Rngs):
+    def __init__(
+        self, embedding_dim: int, pooled_projection_dim: int, *, rngs: nnx.Rngs
+    ):
         super().__init__()
 
         self.time_proj = Timesteps(
@@ -458,16 +484,24 @@ class CombinedTimestepGuidanceTextProjEmbeddings(nnx.Module):
         return conditioning
 
     @classmethod
-    def from_torch(cls, torch_model: torch_embeddings.CombinedTimestepGuidanceTextProjEmbeddings):
+    def from_torch(
+        cls, torch_model: torch_embeddings.CombinedTimestepGuidanceTextProjEmbeddings
+    ):
         out: CombinedTimestepGuidanceTextProjEmbeddings = jax.eval_shape(
             cls(
                 embedding_dim=torch_model.timestep_embedder.linear_1.out_features,
                 pooled_projection_dim=torch_model.text_embedder.linear_1.in_features,
-                rngs=nnx.Rngs(0)
+                rngs=nnx.Rngs(0),
             )
         )
         out.time_proj = Timesteps.from_torch(torch_model.time_proj)
-        out.timestep_embedder = TimestepEmbedding.from_torch(torch_model.timestep_embedder)
-        out.guidance_embedder = TimestepEmbedding.from_torch(torch_model.guidance_embedder)
-        out.text_embedder = PixArtAlphaTextProjection.from_torch(torch_model.text_embedder)
+        out.timestep_embedder = TimestepEmbedding.from_torch(
+            torch_model.timestep_embedder
+        )
+        out.guidance_embedder = TimestepEmbedding.from_torch(
+            torch_model.guidance_embedder
+        )
+        out.text_embedder = PixArtAlphaTextProjection.from_torch(
+            torch_model.text_embedder
+        )
         return out
