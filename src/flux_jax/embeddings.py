@@ -417,7 +417,7 @@ class CombinedTimestepTextProjEmbeddings(nnx.Module):
     def __call__(self, timestep, pooled_projection):
         timesteps_proj = self.time_proj(timestep)
         timesteps_emb = self.timestep_embedder(
-            timesteps_proj.to(dtype=pooled_projection.dtype)
+            timesteps_proj.astype(dtype=pooled_projection.dtype)
         )  # (N, D)
 
         pooled_projections = self.text_embedder(pooled_projection)

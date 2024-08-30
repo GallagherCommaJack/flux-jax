@@ -11,6 +11,7 @@ import jax
 from flux_jax.embeddings import FluxPosEmbed, Timesteps
 from flux_jax.embeddings import TimestepEmbedding
 from flux_jax.embeddings import PixArtAlphaTextProjection
+from flux_jax.embeddings import CombinedTimestepGuidanceTextProjEmbeddings, CombinedTimestepTextProjEmbeddings
 
 def assert_allclose_with_summary(jax_array, torch_array, atol=1 / 256, rtol=1 / 256):
     deltas = np.abs(jax_array - torch_array)
@@ -312,3 +313,78 @@ def test_pixart_alpha_text_projection(in_features, hidden_size, out_features, ac
     assert_allclose_with_summary(jax_output, jax_output_direct)
 
     print("PixArtAlphaTextProjection.__call__ method produces consistent results.")
+
+
+@pytest.mark.parametrize(
+    ["embedding_dim", "pooled_projection_dim", "batch_size"],
+    [
+        (1024, 768, 1),
+        (1280, 1024, 4),
+        (1536, 1280, 8),
+    ]
+)
+def test_combined_timestep_guidance_text_proj_embeddings(embedding_dim, pooled_projection_dim, batch_size):
+    # Create PyTorch model
+    torch_model = torch_embeddings.CombinedTimestepGuidanceTextProjEmbeddings(
+        embedding_dim=embedding_dim,
+        pooled_projection_dim=pooled_projection_dim
+    ).eval().requires_grad_(False)
+
+    # Create JAX model from PyTorch model
+    jax_model = CombinedTimestepGuidanceTextProjEmbeddings.from_torch(torch_model)
+
+    # Create random inputs
+    rng = jax.random.PRNGKey(0)
+    timestep = jax.random.uniform(rng, (batch_size,))
+    guidance = jax.random.uniform(jax.random.split(rng)[0], (batch_size,))
+    pooled_projection = jax.random.normal(jax.random.split(rng)[1], (batch_size, pooled_projection_dim))
+
+    # Run JAX model
+    jax_output = jax_model(timestep, guidance, pooled_projection)
+
+    # Run PyTorch model
+    torch_timestep = torch.from_numpy(np.array(timestep))
+    torch_guidance = torch.from_numpy(np.array(guidance))
+    torch_pooled_projection = torch.from_numpy(np.array(pooled_projection))
+    torch_output = torch_model(torch_timestep, torch_guidance, torch_pooled_projection)
+
+    # Compare results
+    assert_allclose_with_summary(jax_output, torch_output.detach().numpy())
+
+    print("JAX and PyTorch implementations of CombinedTimestepGuidanceTextProjEmbeddings produce the same results.")
+
+@pytest.mark.parametrize(
+    ["embedding_dim", "pooled_projection_dim", "batch_size"],
+    [
+        (1024, 768, 1),
+        (1280, 1024, 4),
+        (1536, 1280, 8),
+    ]
+)
+def test_combined_timestep_text_proj_embeddings(embedding_dim, pooled_projection_dim, batch_size):
+    # Create PyTorch model
+    torch_model = torch_embeddings.CombinedTimestepTextProjEmbeddings(
+        embedding_dim=embedding_dim,
+        pooled_projection_dim=pooled_projection_dim
+    ).eval().requires_grad_(False)
+
+    # Create JAX model from PyTorch model
+    jax_model = CombinedTimestepTextProjEmbeddings.from_torch(torch_model)
+
+    # Create random inputs
+    rng = jax.random.PRNGKey(0)
+    timestep = jax.random.uniform(rng, (batch_size,))
+    pooled_projection = jax.random.normal(jax.random.split(rng)[0], (batch_size, pooled_projection_dim))
+
+    # Run JAX model
+    jax_output = jax_model(timestep, pooled_projection)
+
+    # Run PyTorch model
+    torch_timestep = torch.from_numpy(np.array(timestep))
+    torch_pooled_projection = torch.from_numpy(np.array(pooled_projection))
+    torch_output = torch_model(torch_timestep, torch_pooled_projection)
+
+    # Compare results
+    assert_allclose_with_summary(jax_output, torch_output.detach().numpy())
+
+    print("JAX and PyTorch implementations of CombinedTimestepTextProjEmbeddings produce the same results.")
