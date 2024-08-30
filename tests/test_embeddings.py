@@ -39,38 +39,6 @@ def assert_allclose_with_summary(jax_array, torch_array, atol=1 / 256, rtol=1 / 
     ), f"JAX and PyTorch implementations produce different results: {deltas_summary}"
 
 
-@pytest.mark.parametrize(
-    ["embedding_dim", "max_period"],
-    [
-        (128, 100),
-        (128, 1_000),
-        (128, 10_000),
-        (256, 10_000),
-        (512, 10_000),
-    ],
-)
-def test_get_timestep_embedding(embedding_dim, max_period):
-    # Define test parameters
-    timesteps = np.linspace(0, max_period, num=1000)
-
-    # Get embeddings using JAX implementation
-    jax_embs = jax_embeddings.get_timestep_embedding(
-        timesteps, embedding_dim, max_period
-    )
-
-    # Get embeddings using PyTorch implementation
-    torch_timesteps = torch.from_numpy(np.array(timesteps))
-    torch_embs = torch_embeddings.get_timestep_embedding(
-        torch_timesteps, embedding_dim, max_period
-    )
-
-    # Compare the results using the helper function
-    assert_allclose_with_summary(jax_embs, torch_embs.numpy())
-
-    print(
-        "JAX and PyTorch implementations of get_timestep_embedding produce the same results."
-    )
-
 
 @pytest.mark.parametrize(
     [
@@ -177,4 +145,36 @@ def test_flux_pos_embed(theta, axes_dim, input_shape, min_pos, max_pos):
 
     print(
         "FluxPosEmbed.from_torch produces the same results as the original JAX implementation."
+    )
+
+@pytest.mark.parametrize(
+    ["embedding_dim", "max_period"],
+    [
+        (128, 100),
+        (128, 1_000),
+        (128, 10_000),
+        (256, 10_000),
+        (512, 10_000),
+    ],
+)
+def test_get_timestep_embedding(embedding_dim, max_period):
+    # Define test parameters
+    timesteps = np.linspace(0, max_period, num=1000)
+
+    # Get embeddings using JAX implementation
+    jax_embs = jax_embeddings.get_timestep_embedding(
+        timesteps, embedding_dim, max_period
+    )
+
+    # Get embeddings using PyTorch implementation
+    torch_timesteps = torch.from_numpy(np.array(timesteps))
+    torch_embs = torch_embeddings.get_timestep_embedding(
+        torch_timesteps, embedding_dim, max_period
+    )
+
+    # Compare the results using the helper function
+    assert_allclose_with_summary(jax_embs, torch_embs.numpy())
+
+    print(
+        "JAX and PyTorch implementations of get_timestep_embedding produce the same results."
     )
