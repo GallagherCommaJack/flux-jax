@@ -1,5 +1,6 @@
 import diffusers.models.embeddings as torch_embeddings
 import diffusers.models.transformers.transformer_flux as torch_flux
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -7,11 +8,15 @@ import torch
 import torch.nn
 
 import flux_jax.embeddings as jax_embeddings
-import jax
-from flux_jax.embeddings import FluxPosEmbed, Timesteps
-from flux_jax.embeddings import TimestepEmbedding
-from flux_jax.embeddings import PixArtAlphaTextProjection
-from flux_jax.embeddings import CombinedTimestepGuidanceTextProjEmbeddings, CombinedTimestepTextProjEmbeddings
+from flux_jax.embeddings import (
+    CombinedTimestepGuidanceTextProjEmbeddings,
+    CombinedTimestepTextProjEmbeddings,
+    FluxPosEmbed,
+    PixArtAlphaTextProjection,
+    TimestepEmbedding,
+    Timesteps,
+)
+
 
 def assert_allclose_with_summary(jax_array, torch_array, atol=1 / 256, rtol=1 / 256):
     deltas = np.abs(jax_array - torch_array)
@@ -194,15 +199,17 @@ def test_get_timestep_embedding(embedding_dim, max_period):
         (256, True, 1, 1, np.linspace(0, 1000, 100)),
         (512, False, 0, 2, np.linspace(0, 10000, 200)),
         (1024, True, 0.5, 1.5, np.arange(0, 1000, 10)),
-    ]
+    ],
 )
-def test_timesteps(num_channels, flip_sin_to_cos, downscale_freq_shift, scale, timesteps):
+def test_timesteps(
+    num_channels, flip_sin_to_cos, downscale_freq_shift, scale, timesteps
+):
     # JAX implementation
     jax_model = Timesteps(
         num_channels=num_channels,
         flip_sin_to_cos=flip_sin_to_cos,
         downscale_freq_shift=downscale_freq_shift,
-        scale=scale
+        scale=scale,
     )
     jax_result = jax_model(jnp.array(timesteps))
 
@@ -211,7 +218,7 @@ def test_timesteps(num_channels, flip_sin_to_cos, downscale_freq_shift, scale, t
         num_channels=num_channels,
         flip_sin_to_cos=flip_sin_to_cos,
         downscale_freq_shift=downscale_freq_shift,
-        scale=scale
+        scale=scale,
     )
     torch_result = torch_model(torch.from_numpy(timesteps))
 
@@ -226,27 +233,42 @@ def test_timesteps(num_channels, flip_sin_to_cos, downscale_freq_shift, scale, t
 
     assert_allclose_with_summary(jax_result, jax_result_from_torch)
 
-    print("Timesteps.from_torch produces the same results as the original JAX implementation.")
+    print(
+        "Timesteps.from_torch produces the same results as the original JAX implementation."
+    )
 
 
 @pytest.mark.parametrize(
-    ["in_channels", "time_embed_dim", "act_fn", "out_dim", "post_act_fn", "cond_proj_dim"],
+    [
+        "in_channels",
+        "time_embed_dim",
+        "act_fn",
+        "out_dim",
+        "post_act_fn",
+        "cond_proj_dim",
+    ],
     [
         (256, 1024, "silu", None, None, None),
         (512, 2048, "mish", 1536, "gelu", None),
         (128, 512, "relu", 256, None, 64),
-    ]
+    ],
 )
-def test_timestep_embedding(in_channels, time_embed_dim, act_fn, out_dim, post_act_fn, cond_proj_dim):
+def test_timestep_embedding(
+    in_channels, time_embed_dim, act_fn, out_dim, post_act_fn, cond_proj_dim
+):
     # Create PyTorch model
-    torch_model = torch_embeddings.TimestepEmbedding(
-        in_channels=in_channels,
-        time_embed_dim=time_embed_dim,
-        act_fn=act_fn,
-        out_dim=out_dim,
-        post_act_fn=post_act_fn,
-        cond_proj_dim=cond_proj_dim
-    ).eval().requires_grad_(False)
+    torch_model = (
+        torch_embeddings.TimestepEmbedding(
+            in_channels=in_channels,
+            time_embed_dim=time_embed_dim,
+            act_fn=act_fn,
+            out_dim=out_dim,
+            post_act_fn=post_act_fn,
+            cond_proj_dim=cond_proj_dim,
+        )
+        .eval()
+        .requires_grad_(False)
+    )
 
     # Create JAX model from PyTorch model
     jax_model = TimestepEmbedding.from_torch(torch_model)
@@ -263,13 +285,17 @@ def test_timestep_embedding(in_channels, time_embed_dim, act_fn, out_dim, post_a
 
     # Run PyTorch model
     torch_sample = torch.from_numpy(np.array(sample))
-    torch_condition = torch.from_numpy(np.array(condition)) if condition is not None else None
+    torch_condition = (
+        torch.from_numpy(np.array(condition)) if condition is not None else None
+    )
     torch_output = torch_model(torch_sample, torch_condition)
 
     # Compare results
     assert_allclose_with_summary(jax_output, torch_output.detach().numpy())
 
-    print("JAX and PyTorch implementations of TimestepEmbedding produce the same results.")
+    print(
+        "JAX and PyTorch implementations of TimestepEmbedding produce the same results."
+    )
 
 
 @pytest.mark.parametrize(
@@ -278,16 +304,20 @@ def test_timestep_embedding(in_channels, time_embed_dim, act_fn, out_dim, post_a
         (768, 1024, None, "gelu_tanh"),
         (1024, 1280, 1536, "silu"),
         (512, 768, 1024, "silu_fp32"),
-    ]
+    ],
 )
 def test_pixart_alpha_text_projection(in_features, hidden_size, out_features, act_fn):
     # Create PyTorch model
-    torch_model = torch_embeddings.PixArtAlphaTextProjection(
-        in_features=in_features,
-        hidden_size=hidden_size,
-        out_features=out_features,
-        act_fn=act_fn
-    ).eval().requires_grad_(False)
+    torch_model = (
+        torch_embeddings.PixArtAlphaTextProjection(
+            in_features=in_features,
+            hidden_size=hidden_size,
+            out_features=out_features,
+            act_fn=act_fn,
+        )
+        .eval()
+        .requires_grad_(False)
+    )
 
     # Create JAX model from PyTorch model
     jax_model = PixArtAlphaTextProjection.from_torch(torch_model)
@@ -306,7 +336,9 @@ def test_pixart_alpha_text_projection(in_features, hidden_size, out_features, ac
     # Compare results
     assert_allclose_with_summary(jax_output, torch_output.detach().numpy())
 
-    print("JAX and PyTorch implementations of PixArtAlphaTextProjection produce the same results.")
+    print(
+        "JAX and PyTorch implementations of PixArtAlphaTextProjection produce the same results."
+    )
 
     # Test __call__ method directly
     jax_output_direct = jax_model(caption)
@@ -321,14 +353,19 @@ def test_pixart_alpha_text_projection(in_features, hidden_size, out_features, ac
         (1024, 768, 1),
         (1280, 1024, 4),
         (1536, 1280, 8),
-    ]
+    ],
 )
-def test_combined_timestep_guidance_text_proj_embeddings(embedding_dim, pooled_projection_dim, batch_size):
+def test_combined_timestep_guidance_text_proj_embeddings(
+    embedding_dim, pooled_projection_dim, batch_size
+):
     # Create PyTorch model
-    torch_model = torch_embeddings.CombinedTimestepGuidanceTextProjEmbeddings(
-        embedding_dim=embedding_dim,
-        pooled_projection_dim=pooled_projection_dim
-    ).eval().requires_grad_(False)
+    torch_model = (
+        torch_embeddings.CombinedTimestepGuidanceTextProjEmbeddings(
+            embedding_dim=embedding_dim, pooled_projection_dim=pooled_projection_dim
+        )
+        .eval()
+        .requires_grad_(False)
+    )
 
     # Create JAX model from PyTorch model
     jax_model = CombinedTimestepGuidanceTextProjEmbeddings.from_torch(torch_model)
@@ -337,7 +374,9 @@ def test_combined_timestep_guidance_text_proj_embeddings(embedding_dim, pooled_p
     rng = jax.random.PRNGKey(0)
     timestep = jax.random.uniform(rng, (batch_size,))
     guidance = jax.random.uniform(jax.random.split(rng)[0], (batch_size,))
-    pooled_projection = jax.random.normal(jax.random.split(rng)[1], (batch_size, pooled_projection_dim))
+    pooled_projection = jax.random.normal(
+        jax.random.split(rng)[1], (batch_size, pooled_projection_dim)
+    )
 
     # Run JAX model
     jax_output = jax_model(timestep, guidance, pooled_projection)
@@ -351,7 +390,10 @@ def test_combined_timestep_guidance_text_proj_embeddings(embedding_dim, pooled_p
     # Compare results
     assert_allclose_with_summary(jax_output, torch_output.detach().numpy())
 
-    print("JAX and PyTorch implementations of CombinedTimestepGuidanceTextProjEmbeddings produce the same results.")
+    print(
+        "JAX and PyTorch implementations of CombinedTimestepGuidanceTextProjEmbeddings produce the same results."
+    )
+
 
 @pytest.mark.parametrize(
     ["embedding_dim", "pooled_projection_dim", "batch_size"],
@@ -359,14 +401,19 @@ def test_combined_timestep_guidance_text_proj_embeddings(embedding_dim, pooled_p
         (1024, 768, 1),
         (1280, 1024, 4),
         (1536, 1280, 8),
-    ]
+    ],
 )
-def test_combined_timestep_text_proj_embeddings(embedding_dim, pooled_projection_dim, batch_size):
+def test_combined_timestep_text_proj_embeddings(
+    embedding_dim, pooled_projection_dim, batch_size
+):
     # Create PyTorch model
-    torch_model = torch_embeddings.CombinedTimestepTextProjEmbeddings(
-        embedding_dim=embedding_dim,
-        pooled_projection_dim=pooled_projection_dim
-    ).eval().requires_grad_(False)
+    torch_model = (
+        torch_embeddings.CombinedTimestepTextProjEmbeddings(
+            embedding_dim=embedding_dim, pooled_projection_dim=pooled_projection_dim
+        )
+        .eval()
+        .requires_grad_(False)
+    )
 
     # Create JAX model from PyTorch model
     jax_model = CombinedTimestepTextProjEmbeddings.from_torch(torch_model)
@@ -374,7 +421,9 @@ def test_combined_timestep_text_proj_embeddings(embedding_dim, pooled_projection
     # Create random inputs
     rng = jax.random.PRNGKey(0)
     timestep = jax.random.uniform(rng, (batch_size,))
-    pooled_projection = jax.random.normal(jax.random.split(rng)[0], (batch_size, pooled_projection_dim))
+    pooled_projection = jax.random.normal(
+        jax.random.split(rng)[0], (batch_size, pooled_projection_dim)
+    )
 
     # Run JAX model
     jax_output = jax_model(timestep, pooled_projection)
@@ -387,4 +436,6 @@ def test_combined_timestep_text_proj_embeddings(embedding_dim, pooled_projection
     # Compare results
     assert_allclose_with_summary(jax_output, torch_output.detach().numpy())
 
-    print("JAX and PyTorch implementations of CombinedTimestepTextProjEmbeddings produce the same results.")
+    print(
+        "JAX and PyTorch implementations of CombinedTimestepTextProjEmbeddings produce the same results."
+    )
