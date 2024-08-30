@@ -39,7 +39,6 @@ def assert_allclose_with_summary(jax_array, torch_array, atol=1 / 256, rtol=1 / 
     ), f"JAX and PyTorch implementations produce different results: {deltas_summary}"
 
 
-
 @pytest.mark.parametrize(
     [
         "dim",
@@ -106,9 +105,15 @@ def test_get_1d_rotary_pos_embed(
 @pytest.mark.parametrize(
     ["theta", "axes_dim", "input_shape", "min_pos", "max_pos"],
     [
-        (10000, [256, 256], (3, 2), [0, 0], [100, 100]),
-        (10000, [512, 512, 512], (2, 3), [0, 0, 0], [1000, 1000, 1000]),
-        (5000, [128, 256, 512, 1024], (3, 4), [-50, -50, -50, -50], [50, 50, 50, 50]),
+        (10000, [256, 256], (10 * 1024, 2), [0, 0], [100, 100]),
+        (10000, [512, 512, 512], (10 * 1024, 3), [0, 0, 0], [1000, 1000, 1000]),
+        (
+            5000,
+            [128, 256, 512, 1024],
+            (10 * 1024, 4),
+            [-50, -50, -50, -50],
+            [50, 50, 50, 50],
+        ),
     ],
 )
 def test_flux_pos_embed(theta, axes_dim, input_shape, min_pos, max_pos):
@@ -146,6 +151,7 @@ def test_flux_pos_embed(theta, axes_dim, input_shape, min_pos, max_pos):
     print(
         "FluxPosEmbed.from_torch produces the same results as the original JAX implementation."
     )
+
 
 @pytest.mark.parametrize(
     ["embedding_dim", "max_period"],
