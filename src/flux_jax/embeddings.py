@@ -314,7 +314,9 @@ class TimestepEmbedding(nnx.Module):
         return sample
 
     @classmethod
-    def from_torch(cls, torch_model: torch_embeddings.TimestepEmbedding) -> "TimestepEmbedding":
+    def from_torch(
+        cls, torch_model: torch_embeddings.TimestepEmbedding
+    ) -> "TimestepEmbedding":
         out: TimestepEmbedding = nnx.eval_shape(
             lambda: cls(
                 in_channels=torch_model.linear_1.in_features,
@@ -324,7 +326,9 @@ class TimestepEmbedding(nnx.Module):
                 post_act_fn=from_torch_activation(torch_model.post_act)
                 if torch_model.post_act is not None
                 else None,
-                cond_proj_dim=torch_model.cond_proj.out_features if torch_model.cond_proj is not None else None,
+                cond_proj_dim=torch_model.cond_proj.out_features
+                if torch_model.cond_proj is not None
+                else None,
                 sample_proj_bias=torch_model.linear_1.bias is not None,
                 rngs=nnx.Rngs(0),
             )
