@@ -127,9 +127,7 @@ def get_1d_rotary_pos_embed(
         )  # [S, D]
         return freqs_cos, freqs_sin
     else:
-        freqs_cis = jnp.exp(1j * freqs).astype(
-            jnp.float32
-        )  # complex64     # [S, D/2]
+        freqs_cis = jnp.exp(1j * freqs).astype(jnp.float32)  # complex64     # [S, D/2]
         return freqs_cis
 
 
@@ -147,7 +145,10 @@ class FluxPosEmbed(nnx.Module):
         pos = jnp.squeeze(ids)
         for i in range(n_axes):
             cos, sin = get_1d_rotary_pos_embed(
-                self.axes_dim[i], pos[:, i], repeat_interleave_real=True, use_real=True
+                self.axes_dim[i],
+                pos[:, i],
+                repeat_interleave_real=True,
+                use_real=True,
             )
             cos_out.append(cos)
             sin_out.append(sin)
