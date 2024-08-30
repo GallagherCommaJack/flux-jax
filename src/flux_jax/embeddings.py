@@ -128,7 +128,7 @@ def get_1d_rotary_pos_embed(
         return freqs_cos, freqs_sin
     else:
         freqs_cis = jnp.exp(1j * freqs).astype(
-            jnp.complex64
+            jnp.float32
         )  # complex64     # [S, D/2]
         return freqs_cis
 
