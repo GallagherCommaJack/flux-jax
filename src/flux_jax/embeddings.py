@@ -11,7 +11,7 @@ from flax import nnx
 
 
 def torch_linear_to_jax_linear(torch_linear: torch.nn.Linear) -> nnx.Linear:
-    dense: nnx.Linear = jax.eval_shape(
+    dense: nnx.Linear = nnx.eval_shape(
         lambda: nnx.Linear(
             in_features=torch_linear.in_features,
             out_features=torch_linear.out_features,
@@ -36,15 +36,15 @@ ACTIVATION_FUNCTIONS = {
 
 def from_torch_activation(
     torch_activation: torch.nn.Module,
-) -> Callable[[jax.Array], jax.Array]:
+) -> str:
     if isinstance(torch_activation, torch.nn.SiLU):
-        return jax.nn.silu
+        return "silu"
     elif isinstance(torch_activation, torch.nn.Mish):
-        return jax.nn.mish
+        return "mish"
     elif isinstance(torch_activation, torch.nn.GELU):
-        return jax.nn.gelu
+        return "gelu"
     elif isinstance(torch_activation, torch.nn.ReLU):
-        return jax.nn.relu
+        return "relu"
     else:
         raise ValueError(f"Unsupported activation function: {torch_activation}")
 
@@ -314,18 +314,18 @@ class TimestepEmbedding(nnx.Module):
         return sample
 
     @classmethod
-    def from_torch(cls, torch_model: torch_embeddings.TimestepEmbedding):
-        out: TimestepEmbedding = jax.eval_shape(
-            cls(
-                in_channels=torch_model.in_channels,
-                time_embed_dim=torch_model.time_embed_dim,
+    def from_torch(cls, torch_model: torch_embeddings.TimestepEmbedding) -> "TimestepEmbedding":
+        out: TimestepEmbedding = nnx.eval_shape(
+            lambda: cls(
+                in_channels=torch_model.linear_1.in_features,
+                time_embed_dim=torch_model.linear_1.out_features,
                 act_fn=from_torch_activation(torch_model.act),
-                out_dim=torch_model.out_dim,
+                out_dim=torch_model.linear_2.out_features,
                 post_act_fn=from_torch_activation(torch_model.post_act)
                 if torch_model.post_act is not None
                 else None,
-                cond_proj_dim=torch_model.cond_proj_dim,
-                sample_proj_bias=torch_model.sample_proj_bias,
+                cond_proj_dim=torch_model.cond_proj.out_features if torch_model.cond_proj is not None else None,
+                sample_proj_bias=torch_model.linear_1.bias is not None,
                 rngs=nnx.Rngs(0),
             )
         )
@@ -378,7 +378,7 @@ class PixArtAlphaTextProjection(nnx.Module):
 
     @classmethod
     def from_torch(cls, torch_model: torch_embeddings.PixArtAlphaTextProjection):
-        out: PixArtAlphaTextProjection = jax.eval_shape(
+        out: PixArtAlphaTextProjection = nnx.eval_shape(
             cls(
                 in_features=torch_model.linear_1.in_features,
                 hidden_size=torch_model.linear_1.out_features,
@@ -430,7 +430,7 @@ class CombinedTimestepTextProjEmbeddings(nnx.Module):
     def from_torch(
         cls, torch_model: torch_embeddings.CombinedTimestepTextProjEmbeddings
     ):
-        out: CombinedTimestepTextProjEmbeddings = jax.eval_shape(
+        out: CombinedTimestepTextProjEmbeddings = nnx.eval_shape(
             cls(
                 embedding_dim=torch_model.timestep_embedder.linear_1.out_features,
                 pooled_projection_dim=torch_model.text_embedder.linear_1.in_features,
@@ -488,7 +488,7 @@ class CombinedTimestepGuidanceTextProjEmbeddings(nnx.Module):
     def from_torch(
         cls, torch_model: torch_embeddings.CombinedTimestepGuidanceTextProjEmbeddings
     ):
-        out: CombinedTimestepGuidanceTextProjEmbeddings = jax.eval_shape(
+        out: CombinedTimestepGuidanceTextProjEmbeddings = nnx.eval_shape(
             cls(
                 embedding_dim=torch_model.timestep_embedder.linear_1.out_features,
                 pooled_projection_dim=torch_model.text_embedder.linear_1.in_features,

@@ -8,8 +8,8 @@ import torch.nn
 
 import flux_jax.embeddings as jax_embeddings
 import jax
-from flux_jax.embeddings import FluxPosEmbed
-
+from flux_jax.embeddings import FluxPosEmbed, Timesteps
+from flux_jax.embeddings import TimestepEmbedding
 
 def assert_allclose_with_summary(jax_array, torch_array, atol=1 / 256, rtol=1 / 256):
     deltas = np.abs(jax_array - torch_array)
@@ -184,3 +184,87 @@ def test_get_timestep_embedding(embedding_dim, max_period):
     print(
         "JAX and PyTorch implementations of get_timestep_embedding produce the same results."
     )
+
+
+@pytest.mark.parametrize(
+    ["num_channels", "flip_sin_to_cos", "downscale_freq_shift", "scale", "timesteps"],
+    [
+        (256, True, 1, 1, np.linspace(0, 1000, 100)),
+        (512, False, 0, 2, np.linspace(0, 10000, 200)),
+        (1024, True, 0.5, 1.5, np.arange(0, 1000, 10)),
+    ]
+)
+def test_timesteps(num_channels, flip_sin_to_cos, downscale_freq_shift, scale, timesteps):
+    # JAX implementation
+    jax_model = Timesteps(
+        num_channels=num_channels,
+        flip_sin_to_cos=flip_sin_to_cos,
+        downscale_freq_shift=downscale_freq_shift,
+        scale=scale
+    )
+    jax_result = jax_model(jnp.array(timesteps))
+
+    # PyTorch implementation
+    torch_model = torch_embeddings.Timesteps(
+        num_channels=num_channels,
+        flip_sin_to_cos=flip_sin_to_cos,
+        downscale_freq_shift=downscale_freq_shift,
+        scale=scale
+    )
+    torch_result = torch_model(torch.from_numpy(timesteps))
+
+    # Compare results
+    assert_allclose_with_summary(jax_result, torch_result.numpy())
+
+    print("JAX and PyTorch implementations of Timesteps produce the same results.")
+
+    # Test from_torch class method
+    jax_model_from_torch = Timesteps.from_torch(torch_model)
+    jax_result_from_torch = jax_model_from_torch(jnp.array(timesteps))
+
+    assert_allclose_with_summary(jax_result, jax_result_from_torch)
+
+    print("Timesteps.from_torch produces the same results as the original JAX implementation.")
+
+
+@pytest.mark.parametrize(
+    ["in_channels", "time_embed_dim", "act_fn", "out_dim", "post_act_fn", "cond_proj_dim"],
+    [
+        (256, 1024, "silu", None, None, None),
+        (512, 2048, "mish", 1536, "gelu", None),
+        (128, 512, "relu", 256, None, 64),
+    ]
+)
+def test_timestep_embedding(in_channels, time_embed_dim, act_fn, out_dim, post_act_fn, cond_proj_dim):
+    # Create PyTorch model
+    torch_model = torch_embeddings.TimestepEmbedding(
+        in_channels=in_channels,
+        time_embed_dim=time_embed_dim,
+        act_fn=act_fn,
+        out_dim=out_dim,
+        post_act_fn=post_act_fn,
+        cond_proj_dim=cond_proj_dim
+    ).eval().requires_grad_(False)
+
+    # Create JAX model from PyTorch model
+    jax_model = TimestepEmbedding.from_torch(torch_model)
+
+    # Create random input
+    rng = jax.random.PRNGKey(0)
+    sample = jax.random.normal(rng, (1, in_channels))
+    condition = None
+    if cond_proj_dim is not None:
+        condition = jax.random.normal(rng, (1, cond_proj_dim))
+
+    # Run JAX model
+    jax_output = jax_model(sample, condition)
+
+    # Run PyTorch model
+    torch_sample = torch.from_numpy(np.array(sample))
+    torch_condition = torch.from_numpy(np.array(condition)) if condition is not None else None
+    torch_output = torch_model(torch_sample, torch_condition)
+
+    # Compare results
+    assert_allclose_with_summary(jax_output, torch_output.detach().numpy())
+
+    print("JAX and PyTorch implementations of TimestepEmbedding produce the same results.")
