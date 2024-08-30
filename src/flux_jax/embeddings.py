@@ -379,7 +379,7 @@ class PixArtAlphaTextProjection(nnx.Module):
     @classmethod
     def from_torch(cls, torch_model: torch_embeddings.PixArtAlphaTextProjection):
         out: PixArtAlphaTextProjection = nnx.eval_shape(
-            cls(
+            lambda: cls(
                 in_features=torch_model.linear_1.in_features,
                 hidden_size=torch_model.linear_1.out_features,
                 out_features=torch_model.linear_2.out_features,
@@ -431,7 +431,7 @@ class CombinedTimestepTextProjEmbeddings(nnx.Module):
         cls, torch_model: torch_embeddings.CombinedTimestepTextProjEmbeddings
     ):
         out: CombinedTimestepTextProjEmbeddings = nnx.eval_shape(
-            cls(
+            lambda: cls(
                 embedding_dim=torch_model.timestep_embedder.linear_1.out_features,
                 pooled_projection_dim=torch_model.text_embedder.linear_1.in_features,
                 rngs=nnx.Rngs(0),
@@ -489,7 +489,7 @@ class CombinedTimestepGuidanceTextProjEmbeddings(nnx.Module):
         cls, torch_model: torch_embeddings.CombinedTimestepGuidanceTextProjEmbeddings
     ):
         out: CombinedTimestepGuidanceTextProjEmbeddings = nnx.eval_shape(
-            cls(
+            lambda: cls(
                 embedding_dim=torch_model.timestep_embedder.linear_1.out_features,
                 pooled_projection_dim=torch_model.text_embedder.linear_1.in_features,
                 rngs=nnx.Rngs(0),

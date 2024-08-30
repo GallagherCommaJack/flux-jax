@@ -10,6 +10,7 @@ import flux_jax.embeddings as jax_embeddings
 import jax
 from flux_jax.embeddings import FluxPosEmbed, Timesteps
 from flux_jax.embeddings import TimestepEmbedding
+from flux_jax.embeddings import PixArtAlphaTextProjection
 
 def assert_allclose_with_summary(jax_array, torch_array, atol=1 / 256, rtol=1 / 256):
     deltas = np.abs(jax_array - torch_array)
@@ -268,3 +269,46 @@ def test_timestep_embedding(in_channels, time_embed_dim, act_fn, out_dim, post_a
     assert_allclose_with_summary(jax_output, torch_output.detach().numpy())
 
     print("JAX and PyTorch implementations of TimestepEmbedding produce the same results.")
+
+
+@pytest.mark.parametrize(
+    ["in_features", "hidden_size", "out_features", "act_fn"],
+    [
+        (768, 1024, None, "gelu_tanh"),
+        (1024, 1280, 1536, "silu"),
+        (512, 768, 1024, "silu_fp32"),
+    ]
+)
+def test_pixart_alpha_text_projection(in_features, hidden_size, out_features, act_fn):
+    # Create PyTorch model
+    torch_model = torch_embeddings.PixArtAlphaTextProjection(
+        in_features=in_features,
+        hidden_size=hidden_size,
+        out_features=out_features,
+        act_fn=act_fn
+    ).eval().requires_grad_(False)
+
+    # Create JAX model from PyTorch model
+    jax_model = PixArtAlphaTextProjection.from_torch(torch_model)
+
+    # Create random input
+    rng = jax.random.PRNGKey(0)
+    caption = jax.random.normal(rng, (8, in_features))
+
+    # Run JAX model
+    jax_output = jax_model(caption)
+
+    # Run PyTorch model
+    torch_caption = torch.from_numpy(np.array(caption))
+    torch_output = torch_model(torch_caption)
+
+    # Compare results
+    assert_allclose_with_summary(jax_output, torch_output.detach().numpy())
+
+    print("JAX and PyTorch implementations of PixArtAlphaTextProjection produce the same results.")
+
+    # Test __call__ method directly
+    jax_output_direct = jax_model(caption)
+    assert_allclose_with_summary(jax_output, jax_output_direct)
+
+    print("PixArtAlphaTextProjection.__call__ method produces consistent results.")
