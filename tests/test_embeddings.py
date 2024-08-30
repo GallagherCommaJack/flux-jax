@@ -251,10 +251,10 @@ def test_timestep_embedding(in_channels, time_embed_dim, act_fn, out_dim, post_a
 
     # Create random input
     rng = jax.random.PRNGKey(0)
-    sample = jax.random.normal(rng, (1, in_channels))
+    sample = jax.random.normal(rng, (8, in_channels))
     condition = None
     if cond_proj_dim is not None:
-        condition = jax.random.normal(rng, (1, cond_proj_dim))
+        condition = jax.random.normal(rng, (8, cond_proj_dim))
 
     # Run JAX model
     jax_output = jax_model(sample, condition)
