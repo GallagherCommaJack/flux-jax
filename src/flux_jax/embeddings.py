@@ -8,62 +8,7 @@ import jax
 import jax.numpy as jnp
 import torch.nn
 from flax import nnx
-
-
-def torch_linear_to_jax_linear(torch_linear: torch.nn.Linear) -> nnx.Linear:
-    dense: nnx.Linear = nnx.eval_shape(
-        lambda: nnx.Linear(
-            in_features=torch_linear.in_features,
-            out_features=torch_linear.out_features,
-            use_bias=torch_linear.bias is not None,
-            rngs=nnx.Rngs(0),
-        )
-    )
-    dense.kernel.value = jnp.array(torch_linear.weight.T.numpy())
-    if torch_linear.bias is not None:
-        dense.bias.value = jnp.array(torch_linear.bias.numpy())
-    return dense
-
-
-ACTIVATION_FUNCTIONS = {
-    "swish": jax.nn.silu,
-    "silu": jax.nn.silu,
-    "mish": jax.nn.mish,
-    "gelu": jax.nn.gelu,
-    "relu": jax.nn.relu,
-}
-
-
-def from_torch_activation(
-    torch_activation: torch.nn.Module,
-) -> str:
-    if isinstance(torch_activation, torch.nn.SiLU):
-        return "silu"
-    elif isinstance(torch_activation, torch.nn.Mish):
-        return "mish"
-    elif isinstance(torch_activation, torch.nn.GELU):
-        return "gelu"
-    elif isinstance(torch_activation, torch.nn.ReLU):
-        return "relu"
-    else:
-        raise ValueError(f"Unsupported activation function: {torch_activation}")
-
-
-def get_activation(act_fn: str) -> Callable[[jax.Array], jax.Array]:
-    """Helper function to get activation function from string.
-
-    Args:
-        act_fn (str): Name of activation function.
-
-    Returns:
-        nn.Module: Activation function.
-    """
-
-    act_fn = act_fn.lower()
-    if act_fn in ACTIVATION_FUNCTIONS:
-        return ACTIVATION_FUNCTIONS[act_fn]
-    else:
-        raise ValueError(f"Unsupported activation function: {act_fn}")
+from .common import torch_linear_to_jax_linear, get_activation, from_torch_activation
 
 
 def get_1d_rotary_pos_embed(
@@ -473,12 +418,12 @@ class CombinedTimestepGuidanceTextProjEmbeddings(nnx.Module):
     def __call__(self, timestep, guidance, pooled_projection):
         timesteps_proj = self.time_proj(timestep)
         timesteps_emb = self.timestep_embedder(
-            timesteps_proj.astype(pooled_projection.dtype)
+            timesteps_proj.astype(dtype=pooled_projection.dtype)
         )  # (N, D)
 
         guidance_proj = self.time_proj(guidance)
         guidance_emb = self.guidance_embedder(
-            guidance_proj.astype(pooled_projection.dtype)
+            guidance_proj.astype(dtype=pooled_projection.dtype)
         )  # (N, D)
 
         time_guidance_emb = timesteps_emb + guidance_emb
