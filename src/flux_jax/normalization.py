@@ -13,8 +13,7 @@ from diffusers.models.normalization import (
 )
 from flax import nnx
 
-from .common import get_activation, torch_linear_to_jax_linear
-
+from .common import get_activation, torch_linear_to_jax_linear, torch_layernorm_to_jax_layernorm, torch_rmsnorm_to_jax_rmsnorm
 
 class AdaLayerNormContinuous(nnx.Module):
     def __init__(
@@ -39,11 +38,18 @@ class AdaLayerNormContinuous(nnx.Module):
         )
         if norm_type == "layer_norm":
             self.norm = nnx.LayerNorm(
-                embedding_dim, eps=eps, use_bias=bias, use_scale=elementwise_affine
+                num_features=embedding_dim,
+                epsilon=eps,
+                use_bias=bias,
+                use_scale=elementwise_affine,
+                rngs=rngs,
             )
         elif norm_type == "rms_norm":
             self.norm = nnx.RMSNorm(
-                embedding_dim, eps=eps, use_scale=elementwise_affine
+                num_features=embedding_dim,
+                epsilon=eps,
+                use_scale=elementwise_affine,
+                rngs=rngs,
             )
         else:
             raise ValueError(f"unknown norm_type {norm_type}")
@@ -59,9 +65,9 @@ class AdaLayerNormContinuous(nnx.Module):
     def from_torch(cls, torch_model: AdaLayerNormContinuous_torch):
         out: AdaLayerNormContinuous = nnx.eval_shape(
             lambda: cls(
-                embedding_dim=torch_model.norm.normalized_shape[0],
-                conditioning_embedding_dim=torch_model.linear.in_features,
-                elementwise_affine=torch_model.norm.elementwise_affine,
+                embedding_dim=1,
+                conditioning_embedding_dim=1,
+                elementwise_affine=False,
                 eps=torch_model.norm.eps,
                 bias=torch_model.linear.bias is not None,
                 norm_type="layer_norm"
@@ -72,8 +78,7 @@ class AdaLayerNormContinuous(nnx.Module):
         )
         out.linear = torch_linear_to_jax_linear(torch_model.linear)
         if isinstance(torch_model.norm, torch.nn.LayerNorm):
-            out.norm.scale.value = jnp.array(torch_model.norm.weight.detach().numpy())
-            out.norm.bias.value = jnp.array(torch_model.norm.bias.detach().numpy())
+            out.norm = torch_layernorm_to_jax_layernorm(torch_model.norm)
         elif isinstance(torch_model.norm, torch.nn.RMSNorm):
-            out.norm.scale.value = jnp.array(torch_model.norm.weight.detach().numpy())
+            out.norm = torch_rmsnorm_to_jax_rmsnorm(torch_model.norm)
         return out
