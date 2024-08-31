@@ -528,7 +528,6 @@ class CombinedTimestepLabelEmbeddings(nnx.Module):
             num_channels=256,
             flip_sin_to_cos=True,
             downscale_freq_shift=1,
-            rngs=rngs,
         )
         self.timestep_embedder = TimestepEmbedding(
             in_channels=256,
@@ -563,7 +562,7 @@ class CombinedTimestepLabelEmbeddings(nnx.Module):
         out = nnx.eval_shape(
             lambda: cls(
                 num_classes=torch_model.class_embedder.num_classes,
-                embedding_dim=torch_model.timestep_embedder.time_embed_dim,
+                embedding_dim=torch_model.timestep_embedder.linear_1.out_features,
                 class_dropout_prob=torch_model.class_embedder.dropout_prob,
                 rngs=nnx.Rngs(0),
             )

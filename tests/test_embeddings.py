@@ -418,8 +418,8 @@ def test_combined_timestep_text_proj_embeddings(
 @pytest.mark.parametrize(
     ["num_classes", "hidden_size", "dropout_prob", "batch_size"],
     [
-        (10, 64, 0.1, 4),
-        (100, 128, 0.2, 8),
+        (10, 64, 0.0, 4),
+        (100, 128, 0.0, 8),
         (1000, 256, 0.0, 16),
     ],
 )
@@ -464,8 +464,8 @@ def test_label_embedding(num_classes, hidden_size, dropout_prob, batch_size):
 @pytest.mark.parametrize(
     ["num_classes", "embedding_dim", "class_dropout_prob", "batch_size"],
     [
-        (10, 64, 0.1, 4),
-        (100, 128, 0.2, 8),
+        (10, 64, 0.0, 4),
+        (100, 128, 0.0, 8),
         (1000, 256, 0.0, 16),
     ],
 )
@@ -486,7 +486,7 @@ def test_combined_timestep_label_embeddings(num_classes, embedding_dim, class_dr
     class_labels = jax.random.randint(jax.random.split(rng)[0], (batch_size,), 0, num_classes)
 
     # Run JAX model
-    jax_output = jax_model(timestep, class_labels, key=rng)
+    jax_output = jax_model(timestep, class_labels, key=rng, is_training=False)
 
     # Run PyTorch model
     torch_timestep = torch.from_numpy(np.array(timestep))

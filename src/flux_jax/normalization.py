@@ -92,6 +92,7 @@ class AdaLayerNormContinuous(nnx.Module):
             out.norm = torch_rmsnorm_to_jax_rmsnorm(torch_model.norm)
         return out
 
+
 class AdaLayerNormZero(nnx.Module):
     r"""
     Norm layer adaptive layer norm zero (adaLN-Zero).
@@ -110,13 +111,16 @@ class AdaLayerNormZero(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
-        super().__init__()
         if num_embeddings is not None:
-            self.emb = CombinedTimestepLabelEmbeddings(num_embeddings, embedding_dim, rngs=rngs)
+            self.emb = CombinedTimestepLabelEmbeddings(
+                num_embeddings, embedding_dim, rngs=rngs
+            )
         else:
             self.emb = None
 
-        self.linear = nnx.Linear(embedding_dim, 6 * embedding_dim, use_bias=bias, rngs=rngs)
+        self.linear = nnx.Linear(
+            embedding_dim, 6 * embedding_dim, use_bias=bias, rngs=rngs
+        )
         if norm_type == "layer_norm":
             self.norm = nnx.LayerNorm(
                 num_features=embedding_dim,
@@ -143,9 +147,30 @@ class AdaLayerNormZero(nnx.Module):
         if self.emb is not None:
             emb = self.emb(timestep, class_labels, hidden_dtype=hidden_dtype)
         emb = self.linear(jax.nn.silu(emb))
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = jnp.split(emb, 6, axis=-1)
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = jnp.split(
+            emb, 6, axis=-1
+        )
         x = self.norm(x) * (1 + scale_msa[:, None, :]) + shift_msa[:, None, :]
         return x, gate_msa, shift_mlp, scale_mlp, gate_mlp
+
+    @classmethod
+    def from_torch(cls, torch_model: AdaLayerNormZero_torch):
+        out: AdaLayerNormZero = nnx.eval_shape(
+            lambda: cls(
+                embedding_dim=1,
+                num_embeddings=1,
+                norm_type="layer_norm",
+                bias=torch_model.linear.bias is not None,
+                rngs=nnx.Rngs(0),
+            )
+        )
+        out.linear = torch_linear_to_jax_linear(torch_model.linear)
+        out.norm = torch_layernorm_to_jax_layernorm(torch_model.norm)
+        if torch_model.emb is not None:
+            out.emb = CombinedTimestepLabelEmbeddings.from_torch(torch_model.emb)
+        else:
+            out.emb = None
+        return out
 
 
 class AdaLayerNormZeroSingle(nnx.Module):
@@ -166,7 +191,9 @@ class AdaLayerNormZeroSingle(nnx.Module):
     ):
         super().__init__()
 
-        self.linear = nnx.Linear(embedding_dim, 3 * embedding_dim, use_bias=bias, rngs=rngs)
+        self.linear = nnx.Linear(
+            embedding_dim, 3 * embedding_dim, use_bias=bias, rngs=rngs
+        )
         if norm_type == "layer_norm":
             self.norm = nnx.LayerNorm(
                 num_features=embedding_dim,
