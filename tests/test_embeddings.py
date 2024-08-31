@@ -15,6 +15,8 @@ from flux_jax.embeddings import (
     PixArtAlphaTextProjection,
     TimestepEmbedding,
     Timesteps,
+    LabelEmbedding,
+    CombinedTimestepLabelEmbeddings,
 )
 from tests.common import assert_allclose_with_summary
 
@@ -412,3 +414,97 @@ def test_combined_timestep_text_proj_embeddings(
     print(
         "JAX and PyTorch implementations of CombinedTimestepTextProjEmbeddings produce the same results."
     )
+
+@pytest.mark.parametrize(
+    ["num_classes", "hidden_size", "dropout_prob", "batch_size"],
+    [
+        (10, 64, 0.1, 4),
+        (100, 128, 0.2, 8),
+        (1000, 256, 0.0, 16),
+    ],
+)
+def test_label_embedding(num_classes, hidden_size, dropout_prob, batch_size):
+    # Create PyTorch model
+    torch_model = torch_embeddings.LabelEmbedding(
+        num_classes=num_classes,
+        hidden_size=hidden_size,
+        dropout_prob=dropout_prob,
+    ).train().requires_grad_(False)
+
+    # Create JAX model from PyTorch model
+    jax_model = LabelEmbedding.from_torch(torch_model)
+
+    # Create random inputs
+    rng = jax.random.PRNGKey(0)
+    labels = jax.random.randint(rng, (batch_size,), 0, num_classes)
+
+    # Run JAX model
+    jax_output = jax_model(labels, key=rng)
+
+    # Run PyTorch model
+    torch_labels = torch.from_numpy(np.array(labels))
+    torch_output = torch_model(torch_labels)
+
+    # Compare results
+    assert_allclose_with_summary(jax_output, torch_output.detach().numpy())
+
+    print("JAX and PyTorch implementations of LabelEmbedding produce the same results.")
+
+    # Test dropout
+    if dropout_prob > 0:
+        jax_output_dropout = jax_model(labels, key=rng, is_training=True)
+        torch_output_dropout = torch_model(torch_labels)
+        
+        # Check if some embeddings are different due to dropout
+        assert not jnp.allclose(jax_output, jax_output_dropout)
+        assert not torch.allclose(torch_output, torch_output_dropout)
+
+        print("LabelEmbedding dropout is working as expected.")
+
+@pytest.mark.parametrize(
+    ["num_classes", "embedding_dim", "class_dropout_prob", "batch_size"],
+    [
+        (10, 64, 0.1, 4),
+        (100, 128, 0.2, 8),
+        (1000, 256, 0.0, 16),
+    ],
+)
+def test_combined_timestep_label_embeddings(num_classes, embedding_dim, class_dropout_prob, batch_size):
+    # Create PyTorch model
+    torch_model = torch_embeddings.CombinedTimestepLabelEmbeddings(
+        num_classes=num_classes,
+        embedding_dim=embedding_dim,
+        class_dropout_prob=class_dropout_prob,
+    ).eval().requires_grad_(False)
+
+    # Create JAX model from PyTorch model
+    jax_model = CombinedTimestepLabelEmbeddings.from_torch(torch_model)
+
+    # Create random inputs
+    rng = jax.random.PRNGKey(0)
+    timestep = jax.random.uniform(rng, (batch_size,))
+    class_labels = jax.random.randint(jax.random.split(rng)[0], (batch_size,), 0, num_classes)
+
+    # Run JAX model
+    jax_output = jax_model(timestep, class_labels, key=rng)
+
+    # Run PyTorch model
+    torch_timestep = torch.from_numpy(np.array(timestep))
+    torch_class_labels = torch.from_numpy(np.array(class_labels))
+    torch_output = torch_model(torch_timestep, torch_class_labels)
+
+    # Compare results
+    assert_allclose_with_summary(jax_output, torch_output.detach().numpy())
+
+    print("JAX and PyTorch implementations of CombinedTimestepLabelEmbeddings produce the same results.")
+
+    # Test with dropout
+    if class_dropout_prob > 0:
+        jax_output_dropout = jax_model(timestep, class_labels, key=rng, is_training=True)
+        torch_output_dropout = torch_model(torch_timestep, torch_class_labels, is_training=True)
+        
+        # Check if some embeddings are different due to dropout
+        assert not jnp.allclose(jax_output, jax_output_dropout)
+        assert not torch.allclose(torch_output, torch_output_dropout)
+
+        print("CombinedTimestepLabelEmbeddings dropout is working as expected.")

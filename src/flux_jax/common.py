@@ -5,6 +5,18 @@ from flax import nnx
 from typing import Callable
 
 
+def torch_embedding_to_jax_embedding(torch_embedding: torch.nn.Embedding) -> nnx.Embed:
+    jax_embedding: nnx.Embed = nnx.eval_shape(
+        lambda: nnx.Embed(
+            num_embeddings=torch_embedding.num_embeddings,
+            features=torch_embedding.embedding_dim,
+            rngs=nnx.Rngs(0),
+        )
+    )
+    jax_embedding.embedding.value = jnp.array(torch_embedding.weight.detach().numpy())
+    return jax_embedding
+
+
 def torch_linear_to_jax_linear(torch_linear: torch.nn.Linear) -> nnx.Linear:
     dense: nnx.Linear = nnx.eval_shape(
         lambda: nnx.Linear(

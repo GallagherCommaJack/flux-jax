@@ -1,14 +1,20 @@
 import math
-import torch
-from typing import Callable, Optional, Union
+from typing import Optional, Union
 
 import diffusers.models.embeddings as torch_embeddings
 import diffusers.models.transformers.transformer_flux as torch_flux
 import jax
 import jax.numpy as jnp
+import torch
 import torch.nn
 from flax import nnx
-from .common import torch_linear_to_jax_linear, get_activation, from_torch_activation
+
+from .common import (
+    from_torch_activation,
+    get_activation,
+    torch_embedding_to_jax_embedding,
+    torch_linear_to_jax_linear,
+)
 
 
 def get_1d_rotary_pos_embed(
@@ -454,4 +460,117 @@ class CombinedTimestepGuidanceTextProjEmbeddings(nnx.Module):
         out.text_embedder = PixArtAlphaTextProjection.from_torch(
             torch_model.text_embedder
         )
+        return out
+
+
+class LabelEmbedding(nnx.Module):
+    """
+    Embeds class labels into vector representations. Also handles label dropout for classifier-free guidance.
+
+    Args:
+        num_classes (`int`): The number of classes.
+        hidden_size (`int`): The size of the vector embeddings.
+        dropout_prob (`float`): The probability of dropping a label.
+    """
+
+    def __init__(self, num_classes, hidden_size, dropout_prob, *, rngs: nnx.Rngs):
+        use_cfg_embedding = dropout_prob > 0
+        self.embedding_table = nnx.Embed(
+            num_classes + use_cfg_embedding, hidden_size, rngs=rngs
+        )
+        self.num_classes = num_classes
+        self.dropout_prob = dropout_prob
+
+    def token_drop(self, labels, force_drop_ids=None, key=None):
+        """
+        Drops labels to enable classifier-free guidance.
+        """
+        if force_drop_ids is None:
+            drop_ids = jax.random.uniform(key, labels.shape) < self.dropout_prob
+        else:
+            drop_ids = jnp.array(force_drop_ids == 1)
+        labels = jnp.where(drop_ids, self.num_classes, labels)
+        return labels
+
+    def __call__(self, labels, force_drop_ids=None, key=None, is_training: bool = False):
+        use_dropout = self.dropout_prob > 0
+        if (is_training and use_dropout) or (force_drop_ids is not None):
+            labels = self.token_drop(labels, force_drop_ids, key)
+        embeddings = self.embedding_table(labels)
+        return embeddings
+
+    @classmethod
+    def from_torch(cls, torch_model: torch_embeddings.LabelEmbedding):
+        out = nnx.eval_shape(
+            lambda: cls(
+                num_classes=torch_model.num_classes,
+                hidden_size=torch_model.embedding_table.embedding_dim,
+                dropout_prob=torch_model.dropout_prob,
+                rngs=nnx.Rngs(0),
+            )
+        )
+        out.embedding_table = torch_embedding_to_jax_embedding(
+            torch_model.embedding_table
+        )
+        return out
+
+
+class CombinedTimestepLabelEmbeddings(nnx.Module):
+    def __init__(
+        self,
+        num_classes: int,
+        embedding_dim: int,
+        class_dropout_prob: float = 0.1,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        self.time_proj = Timesteps(
+            num_channels=256,
+            flip_sin_to_cos=True,
+            downscale_freq_shift=1,
+            rngs=rngs,
+        )
+        self.timestep_embedder = TimestepEmbedding(
+            in_channels=256,
+            time_embed_dim=embedding_dim,
+            rngs=rngs,
+        )
+        self.class_embedder = LabelEmbedding(
+            num_classes,
+            embedding_dim,
+            class_dropout_prob,
+            rngs=rngs,
+        )
+
+    def __call__(
+        self, timestep, class_labels, hidden_dtype=None, key=None, is_training=False
+    ):
+        timesteps_proj = self.time_proj(timestep)
+        timesteps_emb = self.timestep_embedder(
+            timesteps_proj.astype(hidden_dtype)
+        )  # (N, D)
+
+        class_labels = self.class_embedder(
+            class_labels, key=key, is_training=is_training
+        )  # (N, D)
+
+        conditioning = timesteps_emb + class_labels  # (N, D)
+
+        return conditioning
+
+    @classmethod
+    def from_torch(cls, torch_model: torch_embeddings.CombinedTimestepLabelEmbeddings):
+        out = nnx.eval_shape(
+            lambda: cls(
+                num_classes=torch_model.class_embedder.num_classes,
+                embedding_dim=torch_model.timestep_embedder.time_embed_dim,
+                class_dropout_prob=torch_model.class_embedder.dropout_prob,
+                rngs=nnx.Rngs(0),
+            )
+        )
+        out.time_proj = Timesteps.from_torch(torch_model.time_proj)
+        out.timestep_embedder = TimestepEmbedding.from_torch(
+            torch_model.timestep_embedder
+        )
+        out.class_embedder = LabelEmbedding.from_torch(torch_model.class_embedder)
         return out

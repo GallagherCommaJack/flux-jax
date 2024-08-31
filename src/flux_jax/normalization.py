@@ -1,3 +1,5 @@
+from typing import Optional, Tuple
+
 import jax
 import jax.numpy as jnp
 import torch
@@ -13,7 +15,14 @@ from diffusers.models.normalization import (
 )
 from flax import nnx
 
-from .common import get_activation, torch_linear_to_jax_linear, torch_layernorm_to_jax_layernorm, torch_rmsnorm_to_jax_rmsnorm
+from .common import (
+    get_activation,
+    torch_layernorm_to_jax_layernorm,
+    torch_linear_to_jax_linear,
+    torch_rmsnorm_to_jax_rmsnorm,
+)
+from .embeddings import CombinedTimestepLabelEmbeddings
+
 
 class AdaLayerNormContinuous(nnx.Module):
     def __init__(
@@ -82,3 +91,101 @@ class AdaLayerNormContinuous(nnx.Module):
         elif isinstance(torch_model.norm, torch.nn.RMSNorm):
             out.norm = torch_rmsnorm_to_jax_rmsnorm(torch_model.norm)
         return out
+
+class AdaLayerNormZero(nnx.Module):
+    r"""
+    Norm layer adaptive layer norm zero (adaLN-Zero).
+
+    Parameters:
+        embedding_dim (`int`): The size of each embedding vector.
+        num_embeddings (`int`): The size of the embeddings dictionary.
+    """
+
+    def __init__(
+        self,
+        embedding_dim: int,
+        num_embeddings: Optional[int] = None,
+        norm_type: str = "layer_norm",
+        bias: bool = True,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        super().__init__()
+        if num_embeddings is not None:
+            self.emb = CombinedTimestepLabelEmbeddings(num_embeddings, embedding_dim, rngs=rngs)
+        else:
+            self.emb = None
+
+        self.linear = nnx.Linear(embedding_dim, 6 * embedding_dim, use_bias=bias, rngs=rngs)
+        if norm_type == "layer_norm":
+            self.norm = nnx.LayerNorm(
+                num_features=embedding_dim,
+                epsilon=1e-6,
+                use_bias=False,
+                use_scale=False,
+                rngs=rngs,
+            )
+        elif norm_type == "fp32_layer_norm":
+            raise NotImplementedError("fp32_layer_norm is not implemented in JAX")
+        else:
+            raise ValueError(
+                f"Unsupported `norm_type` ({norm_type}) provided. Supported ones are: 'layer_norm'."
+            )
+
+    def __call__(
+        self,
+        x: jax.Array,
+        timestep: Optional[jax.Array] = None,
+        class_labels: Optional[jax.Array] = None,
+        hidden_dtype: Optional[jnp.dtype] = None,
+        emb: Optional[jax.Array] = None,
+    ) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+        if self.emb is not None:
+            emb = self.emb(timestep, class_labels, hidden_dtype=hidden_dtype)
+        emb = self.linear(jax.nn.silu(emb))
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = jnp.split(emb, 6, axis=-1)
+        x = self.norm(x) * (1 + scale_msa[:, None, :]) + shift_msa[:, None, :]
+        return x, gate_msa, shift_mlp, scale_mlp, gate_mlp
+
+
+class AdaLayerNormZeroSingle(nnx.Module):
+    r"""
+    Norm layer adaptive layer norm zero (adaLN-Zero).
+
+    Parameters:
+        embedding_dim (`int`): The size of each embedding vector.
+    """
+
+    def __init__(
+        self,
+        embedding_dim: int,
+        norm_type: str = "layer_norm",
+        bias: bool = True,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        super().__init__()
+
+        self.linear = nnx.Linear(embedding_dim, 3 * embedding_dim, use_bias=bias, rngs=rngs)
+        if norm_type == "layer_norm":
+            self.norm = nnx.LayerNorm(
+                num_features=embedding_dim,
+                epsilon=1e-6,
+                use_bias=False,
+                use_scale=False,
+                rngs=rngs,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported `norm_type` ({norm_type}) provided. Supported ones are: 'layer_norm'."
+            )
+
+    def __call__(
+        self,
+        x: jax.Array,
+        emb: Optional[jax.Array] = None,
+    ) -> Tuple[jax.Array, jax.Array]:
+        emb = self.linear(jax.nn.silu(emb))
+        shift_msa, scale_msa, gate_msa = jnp.split(emb, 3, axis=-1)
+        x = self.norm(x) * (1 + scale_msa[:, None, :]) + shift_msa[:, None, :]
+        return x, gate_msa
