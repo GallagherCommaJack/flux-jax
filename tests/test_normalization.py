@@ -8,10 +8,11 @@ import torch
 import torch.nn
 from diffusers.models.normalization import (
     AdaLayerNormContinuous as AdaLayerNormContinuous_torch,
+    AdaLayerNormZeroSingle as AdaLayerNormZeroSingle_torch,
 )
 from diffusers.models.normalization import AdaLayerNormZero as AdaLayerNormZero_torch
 
-from flux_jax.normalization import AdaLayerNormContinuous, AdaLayerNormZero
+from flux_jax.normalization import AdaLayerNormContinuous, AdaLayerNormZero, AdaLayerNormZeroSingle
 from tests.common import assert_allclose_with_summary
 
 
@@ -145,3 +146,59 @@ def test_ada_layer_norm_zero(
     print(
         f"JAX and PyTorch implementations of AdaLayerNormZero produce the same results."
     )
+
+@pytest.mark.parametrize(
+    ["embedding_dim", "norm_type", "bias"],
+    [
+        (64, "layer_norm", True),
+        (128, "layer_norm", False),
+        (256, "layer_norm", True),
+    ],
+)
+def test_ada_layer_norm_zero_single(
+    embedding_dim: int,
+    norm_type: str,
+    bias: bool,
+):
+    # Create PyTorch model
+    torch_model = (
+        AdaLayerNormZeroSingle_torch(
+            embedding_dim=embedding_dim,
+            norm_type=norm_type,
+            bias=bias,
+        )
+        .eval()
+        .requires_grad_(False)
+    )
+
+    # Create JAX model from PyTorch model
+    jax_model = AdaLayerNormZeroSingle.from_torch(torch_model)
+
+    # Create random inputs
+    rng = jax.random.PRNGKey(0)
+    x = jax.random.normal(rng, (2, 10, embedding_dim))
+    emb = jax.random.normal(jax.random.split(rng)[0], (2, embedding_dim))
+
+    # Run JAX model
+    jax_output = jax_model(x, emb=emb)
+
+    # Run PyTorch model
+    torch_x = torch.from_numpy(np.array(x))
+    torch_emb = torch.from_numpy(np.array(emb))
+    torch_output = torch_model(torch_x, emb=torch_emb)
+
+    # Compare results
+    for jax_out, torch_out in zip(jax_output, torch_output):
+        assert_allclose_with_summary(jax_out, torch_out.detach().numpy())
+
+    print(
+        f"JAX and PyTorch implementations of AdaLayerNormZeroSingle produce the same results."
+    )
+
+    # Test __call__ method directly
+    jax_output_direct = jax_model(x, emb=emb)
+    
+    for jax_out, jax_out_direct in zip(jax_output, jax_output_direct):
+        assert_allclose_with_summary(jax_out, jax_out_direct)
+
+    print(f"AdaLayerNormZeroSingle.__call__ method produces consistent results.")

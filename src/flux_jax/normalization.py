@@ -216,3 +216,17 @@ class AdaLayerNormZeroSingle(nnx.Module):
         shift_msa, scale_msa, gate_msa = jnp.split(emb, 3, axis=-1)
         x = self.norm(x) * (1 + scale_msa[:, None, :]) + shift_msa[:, None, :]
         return x, gate_msa
+
+    @classmethod
+    def from_torch(cls, torch_model: AdaLayerNormZeroSingle_torch):
+        out: AdaLayerNormZeroSingle = nnx.eval_shape(
+            lambda: cls(
+                embedding_dim=1,
+                norm_type="layer_norm",
+                bias=torch_model.linear.bias is not None,
+                rngs=nnx.Rngs(0),
+            )
+        )
+        out.linear = torch_linear_to_jax_linear(torch_model.linear)
+        out.norm = torch_layernorm_to_jax_layernorm(torch_model.norm)
+        return out
